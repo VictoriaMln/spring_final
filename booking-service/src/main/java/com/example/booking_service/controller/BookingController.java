@@ -4,6 +4,7 @@ import com.example.booking_service.dto.HotelAvailabilityRequest;
 import com.example.booking_service.model.*;
 import com.example.booking_service.repository.BookingRepository;
 import com.example.booking_service.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -23,6 +24,10 @@ public class BookingController {
     private final WebClient webClient;
     private final BookingRepository bookingRepository;
     private final UserRepository userRepository;
+
+    @Value("${hotel.service.url:http://hotel-service}")
+    private String hotelServiceUrl;
+
 
     public BookingController(BookingRepository bookingRepository, UserRepository userRepository, WebClient webClient) {
         this.bookingRepository = bookingRepository;
@@ -61,8 +66,6 @@ public class BookingController {
         public void setId(Long id) { this.id = id; }
         public void setNumber(String number) { this.number = number; }
     }
-
-
 
     @PreAuthorize("hasRole('USER')")
     @PostMapping("/booking")
@@ -114,7 +117,7 @@ public class BookingController {
 
         try {
             webClient.post()
-                    .uri("http://hotel-service/api/internal/rooms/" + selectedRoomId + "/confirm-availability")
+                    .uri(hotelServiceUrl + "/api/internal/rooms/" + selectedRoomId + "/confirm-availability")
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                     .bodyValue(hotelReq)
                     .header("Authorization", authHeader)
@@ -141,7 +144,7 @@ public class BookingController {
 
             try {
                 webClient.post()
-                        .uri("http://hotel-service/api/internal/rooms/" + selectedRoomId + "/release")
+                        .uri(hotelServiceUrl + "/api/internal/rooms/" + selectedRoomId + "/release")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .bodyValue(hotelReq)
                         .header("Authorization", authHeader)
@@ -178,7 +181,7 @@ public class BookingController {
     private Long autoSelectRoomId(CreateBookingRequest request, String authHeader) {
 
         RoomDto[] rooms = webClient.get()
-                .uri("http://hotel-service/api/rooms/recommend")
+                .uri(hotelServiceUrl + "/api/rooms/recommend")
                 .header("Authorization", authHeader)
                 .retrieve()
                 .bodyToMono(RoomDto[].class)
@@ -202,7 +205,7 @@ public class BookingController {
 
             try {
                 webClient.post()
-                        .uri("http://hotel-service/api/internal/rooms/" + roomId + "/confirm-availability")
+                        .uri(hotelServiceUrl + "/api/internal/rooms/" + roomId + "/confirm-availability")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .bodyValue(hotelReq)
                         .header("Authorization", authHeader)
@@ -214,7 +217,7 @@ public class BookingController {
 
                 try {
                     webClient.post()
-                            .uri("http://hotel-service/api/internal/rooms/" + roomId + "/release")
+                            .uri(hotelServiceUrl + "/api/internal/rooms/" + roomId + "/release")
                             .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                             .bodyValue(hotelReq)
                             .header("Authorization", authHeader)
