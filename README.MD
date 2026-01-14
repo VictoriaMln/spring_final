@@ -177,7 +177,7 @@ Booking Service  Hotel Service
     - number
     - available
     - times_booked
-    - 
+
 - **room_holds**
     - id 
     - room_id 
