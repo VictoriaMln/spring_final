@@ -4,6 +4,8 @@ import com.example.booking_service.dto.HotelAvailabilityRequest;
 import com.example.booking_service.model.*;
 import com.example.booking_service.repository.BookingRepository;
 import com.example.booking_service.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -24,6 +26,7 @@ public class BookingController {
     private final WebClient webClient;
     private final BookingRepository bookingRepository;
     private final UserRepository userRepository;
+    private static final Logger log = LoggerFactory.getLogger(BookingController.class);
 
     @Value("${hotel.service.url:http://hotel-service}")
     private String hotelServiceUrl;
@@ -84,6 +87,15 @@ public class BookingController {
 
         boolean auto = Boolean.TRUE.equals(request.getAutoSelect());
 
+        log.info(
+                "Create booking request: user={}, autoSelect={}, roomId={}, startDate={}, endDate={}",
+                user.getUsername(),
+                request.getAutoSelect(),
+                request.getRoomId(),
+                request.getStartDate(),
+                request.getEndDate()
+        );
+
         if (!auto && request.getRoomId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "roomId is required when autoSelect=false");
         }
@@ -107,6 +119,12 @@ public class BookingController {
 
         System.out.println("BOOKING " + saved.getId() + " created, status=PENDING");
 
+        log.info(
+                "Booking created with status PENDING: bookingId={}, user={}",
+                booking.getId(),
+                user.getUsername()
+        );
+
         String requestId = saved.getId().toString();
 
         HotelAvailabilityRequest hotelReq = new HotelAvailabilityRequest(
@@ -116,6 +134,13 @@ public class BookingController {
         );
 
         try {
+            log.info(
+                    "Requesting room availability confirmation: bookingId={}, roomId={}, requestId={}",
+                    booking.getId(),
+                    selectedRoomId,
+                    requestId
+            );
+
             webClient.post()
                     .uri(hotelServiceUrl + "/api/internal/rooms/" + selectedRoomId + "/confirm-availability")
                     .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -130,7 +155,19 @@ public class BookingController {
                     )
                     .block();
 
+            log.info(
+                    "Room availability confirmed: bookingId={}, roomId={}, requestId={}",
+                    booking.getId(),
+                    selectedRoomId,
+                    requestId
+            );
+
             saved.setStatus(BookingStatus.CONFIRMED);
+            log.info(
+                    "Booking status updated to CONFIRMED: bookingId={}",
+                    booking.getId()
+            );
+
             Booking confirmed = bookingRepository.save(saved);
             System.out.println("BOOKING " + confirmed.getId() + " confirmed");
 
@@ -138,11 +175,25 @@ public class BookingController {
 
         } catch (Exception ex) {
             System.out.println("BOOKING " + saved.getId() + " failed, status=CANCELLED, running compensation");
+            log.warn(
+                    "Room availability confirmation failed: bookingId={}, roomId={}, requestId={}, reason={}",
+                    booking.getId(),
+                    selectedRoomId,
+                    requestId,
+                    ex.getMessage()
+            );
 
             saved.setStatus(BookingStatus.CANCELLED);
             Booking cancelled = bookingRepository.save(saved);
 
             try {
+                log.info(
+                        "Sending compensation release: bookingId={}, roomId={}, requestId={}",
+                        booking.getId(),
+                        selectedRoomId,
+                        requestId
+                );
+
                 webClient.post()
                         .uri(hotelServiceUrl + "/api/internal/rooms/" + selectedRoomId + "/release")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
@@ -154,6 +205,11 @@ public class BookingController {
                         .retryWhen(Retry.backoff(2, Duration.ofMillis(200)).filter(this::isRetryable))
                         .block();
             } catch (Exception ignore) {}
+
+            log.info(
+                    "Compensation completed, booking cancelled: bookingId={}",
+                    booking.getId()
+            );
 
             return cancelled;
         }
@@ -176,6 +232,49 @@ public class BookingController {
         User u = userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
         return bookingRepository.findByUserId(u.getId());
+    }
+
+    @PreAuthorize("hasRole('USER')")
+    @GetMapping("/booking/{id}")
+    public Booking getBookingById(@PathVariable Long id,
+                                  org.springframework.security.core.Authentication auth) {
+
+        String username = auth.getName();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        return bookingRepository.findByIdAndUser(id, user)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+    }
+
+    @PreAuthorize("hasRole('USER')")
+    @DeleteMapping("/booking/{id}")
+    public Booking cancelBooking(@PathVariable Long id,
+                                 org.springframework.security.core.Authentication auth) {
+
+        String username = auth.getName();
+        User user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
+
+        Booking booking = bookingRepository.findByIdAndUser(id, user)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+
+        log.info(
+                "Cancel booking request: bookingId={}, user={}",
+                booking.getId(),
+                user.getUsername()
+        );
+
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            log.info(
+                    "Booking already cancelled (idempotent): bookingId={}",
+                    booking.getId()
+            );
+            return booking;
+        }
+
+        booking.setStatus(BookingStatus.CANCELLED);
+        return bookingRepository.save(booking);
     }
 
     private Long autoSelectRoomId(CreateBookingRequest request, String authHeader) {
