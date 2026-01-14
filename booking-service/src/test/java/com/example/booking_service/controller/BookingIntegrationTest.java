@@ -59,13 +59,6 @@ class BookingIntegrationTest {
     @Autowired BookingRepository bookingRepository;
     @Autowired UserRepository userRepository;
 
-   /* @DynamicPropertySource
-    static void props(DynamicPropertyRegistry r) {
-        r.add("hotel.service.url", () -> "http://localhost:" + System.getProperty("wiremock.server.port"));
-        r.add("app.jwt.secret", () -> "test-secret-test-secret-test-secret");
-        r.add("app.jwt.issuer", () -> "test-issuer");
-    } */
-
     @BeforeEach
     void setup() {
         resetAllRequests();

@@ -34,7 +34,7 @@ public class JwtService {
 
     public String generateToken(String username, Collection<? extends GrantedAuthority> authorities) {
         Instant now = Instant.now();
-        long expiresInSeconds = 3600; // 1 час, как в ТЗ :contentReference[oaicite:5]{index=5}
+        long expiresInSeconds = 3600;
 
         String scope = authorities.stream()
                 .map(GrantedAuthority::getAuthority)
